@@ -30,7 +30,7 @@ def add_time_features(df: pd.DataFrame, group_key: str | None = None) -> pd.Data
     lags = (1, 5, 10)
 
     feat_df = df.copy()
-    numeric_cols = feat_df.select_dtypes(include=["number", "float", "int"]).columns
+    numeric_cols = feat_df.select_dtypes(include="number").columns
 
     if group_key and group_key in feat_df.columns:
         grouped = feat_df.groupby(group_key, sort=False)

@@ -21,12 +21,8 @@ def load_artifact(model_path: str = MODEL_PATH) -> Dict[str, Any]:
 
 
 def _drop_label_cols(df: pd.DataFrame) -> pd.DataFrame:
-    out = df
-    for label_col in LABEL_COLS:
-        if label_col in out.columns:
-            out = out.drop(columns=[label_col])
-            break
-    return out
+    cols_to_drop = [col for col in LABEL_COLS if col in df.columns]
+    return df.drop(columns=cols_to_drop) if cols_to_drop else df
 
 
 def _prepare_features(df: pd.DataFrame, artifact: Dict[str, Any]) -> pd.DataFrame:
