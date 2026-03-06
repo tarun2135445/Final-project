@@ -66,32 +66,48 @@ def _stress_test_noise(model, X: pd.DataFrame, y: pd.Series, threshold: float, m
     return cm
 
 
+_LABEL_CANDIDATES = ("label", "Machine failure", "failure")
+_SORT_CANDIDATES = ("UDI", "date", "timestamp", "datetime", "time", "Date")
+_GROUP_CANDIDATES = ("Type", "device", "machine", "unit", "asset", "sensor_id")
+# Columns known to be direct leakage (failure sub-components in the AI4I dataset)
+_LEAKAGE_COLS = {"UDI", "TWF", "HDF", "PWF", "OSF", "RNF"}
+
+
+def _detect_col(df: pd.DataFrame, candidates: tuple) -> str | None:
+    for col in candidates:
+        if col in df.columns:
+            return col
+    return None
+
+
 def main():
     df = pd.read_csv("sensor_train.csv")
 
-    # Accept either a generic "label" column or the dataset's "Machine failure" column.
-    for label_col in ("label", "Machine failure"):
-        if label_col in df.columns:
-            break
-    else:
-        raise KeyError("No label column found. Expected 'label' or 'Machine failure'.")
+    # Auto-detect label column.
+    label_col = _detect_col(df, _LABEL_CANDIDATES)
+    if label_col is None:
+        raise KeyError(
+            f"No label column found. Expected one of: {_LABEL_CANDIDATES}. "
+            f"Got columns: {list(df.columns)}"
+        )
 
-    # Sort chronologically (UDI is a monotonically increasing ID in this dataset) to avoid
-    # leaking future patterns into training.
-    sort_col = "UDI" if "UDI" in df.columns else None
+    # Sort chronologically if a sort column is available to avoid leaking future patterns.
+    sort_col = _detect_col(df, _SORT_CANDIDATES)
     if sort_col:
-        df = df.sort_values(sort_col).reset_index(drop=True)
+        try:
+            df = df.sort_values(sort_col).reset_index(drop=True)
+        except Exception:
+            pass
 
     y = df[label_col].astype(int)
     X = df.drop(columns=[label_col])
 
     # Remove pure identifiers and leakage-y failure component flags.
-    leakage_cols = {"UDI", "TWF", "HDF", "PWF", "OSF", "RNF"}
-    drop_cols = [c for c in leakage_cols if c in X.columns]
+    drop_cols = [c for c in _LEAKAGE_COLS if c in X.columns]
     if drop_cols:
         X = X.drop(columns=drop_cols)
 
-    group_key = "Type" if "Type" in X.columns else None
+    group_key = _detect_col(X, _GROUP_CANDIDATES)
     X = apply_feature_pipeline(X, group_key=group_key)
 
     folds = _rolling_splits(len(X), min_train_frac=0.6, test_frac=0.1, max_folds=4)

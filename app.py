@@ -165,17 +165,18 @@ chronologically ordered batches rather than single rows. If your data has <code>
 )
 
 # ── Constants ──────────────────────────────────────────────────────────────────
-_EXPECTED_SENSOR_COLS = {
-    "Air temperature [K]",
-    "Process temperature [K]",
-    "Rotational speed [rpm]",
-    "Torque [Nm]",
-    "Tool wear [min]",
-}
-_LABEL_COLS = ("label", "Machine failure")
+_LABEL_COLS = ("label", "Machine failure", "failure")
+_GROUP_CANDIDATES = ("Type", "device", "machine", "unit", "asset", "sensor_id")
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
+def _detect_group_col(df: pd.DataFrame) -> str | None:
+    for col in _GROUP_CANDIDATES:
+        if col in df.columns:
+            return col
+    return None
+
+
 def _validate_upload(df: pd.DataFrame) -> tuple[list[str], list[str]]:
     """Return (blocking_errors, warnings). Errors stop inference; warnings are displayed."""
     errors: list[str] = []
@@ -188,13 +189,6 @@ def _validate_upload(df: pd.DataFrame) -> tuple[list[str], list[str]]:
     if len(df.select_dtypes(include="number").columns) == 0:
         errors.append(
             "No numeric columns found. The model requires sensor readings (numeric data)."
-        )
-
-    missing = _EXPECTED_SENSOR_COLS - set(df.columns)
-    if missing:
-        warnings.append(
-            f"Missing expected sensor columns: **{', '.join(sorted(missing))}**. "
-            "These will be filled with zeros — predictions may be less reliable."
         )
 
     return errors, warnings
@@ -382,18 +376,19 @@ if uploaded is not None and run:
             st.markdown("</div>", unsafe_allow_html=True)
 
         with charts_right:
-            st.markdown("### Failure Rate by Type")
+            group_col = _detect_group_col(results)
+            st.markdown(f"### Failure Rate by {group_col or 'Group'}")
             st.markdown("<div class='chart-card'>", unsafe_allow_html=True)
-            if "Type" in results.columns:
+            if group_col:
                 type_counts = (
-                    results.groupby("Type")["prediction"]
+                    results.groupby(group_col)["prediction"]
                     .agg(["sum", "count"])
                     .reset_index()
                 )
                 type_counts["rate"] = type_counts["sum"] / type_counts["count"]
-                st.bar_chart(type_counts.set_index("Type")["rate"])
+                st.bar_chart(type_counts.set_index(group_col)["rate"])
             else:
-                st.info("No 'Type' column found for breakdown.")
+                st.info("No group column found for breakdown.")
             st.markdown("</div>", unsafe_allow_html=True)
 
     # ── Evaluation tab ────────────────────────────────────────────────────────
