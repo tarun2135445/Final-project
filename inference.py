@@ -10,7 +10,12 @@ from features import apply_feature_pipeline
 
 MODEL_PATH = "model.pkl"
 LEAKAGE_COLS = {"UDI", "TWF", "HDF", "PWF", "OSF", "RNF"}
-LABEL_COLS = ("label", "Machine failure")
+LABEL_COLS = ("label", "Machine failure", "failure")
+
+# Columns that serve as row identifiers / sort keys — not useful as features
+_SORT_CANDIDATES = ("UDI", "date", "timestamp", "datetime", "time", "Date")
+# Columns that can be used for group-wise rolling features
+_GROUP_CANDIDATES = ("Type", "device", "machine", "unit", "asset", "sensor_id")
 
 
 def load_artifact(model_path: str = MODEL_PATH) -> Dict[str, Any]:
@@ -25,18 +30,36 @@ def _drop_label_cols(df: pd.DataFrame) -> pd.DataFrame:
     return df.drop(columns=cols_to_drop) if cols_to_drop else df
 
 
+def _detect_sort_col(df: pd.DataFrame) -> str | None:
+    for col in _SORT_CANDIDATES:
+        if col in df.columns:
+            return col
+    return None
+
+
+def _detect_group_key(df: pd.DataFrame) -> str | None:
+    for col in _GROUP_CANDIDATES:
+        if col in df.columns:
+            return col
+    return None
+
+
 def _prepare_features(df: pd.DataFrame, artifact: Dict[str, Any]) -> pd.DataFrame:
     data = df.copy()
     data = _drop_label_cols(data)
 
-    if "UDI" in data.columns:
-        data = data.sort_values("UDI").reset_index(drop=True)
+    sort_col = _detect_sort_col(data)
+    if sort_col:
+        try:
+            data = data.sort_values(sort_col).reset_index(drop=True)
+        except Exception:
+            pass
 
     drop_cols = [c for c in LEAKAGE_COLS if c in data.columns]
     if drop_cols:
         data = data.drop(columns=drop_cols)
 
-    group_key = "Type" if "Type" in data.columns else None
+    group_key = _detect_group_key(data)
     X = apply_feature_pipeline(data, group_key=group_key)
 
     feature_cols = list(artifact.get("feature_cols", []))
